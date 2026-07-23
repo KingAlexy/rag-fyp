@@ -12,10 +12,7 @@ Set your Groq API key (free at console.groq.com):
 """
 
 from __future__ import annotations
-import os
-import uuid
-import json
-import time
+import os, uuid, json, time
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -39,13 +36,13 @@ import docx          # python-docx
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-EMBED_MODEL = "all-MiniLM-L6-v2"   # free, runs locally, 384-dim vectors
-GROQ_MODEL = "llama-3.3-70b-versatile"   # free tier, fast inference
-CHUNK_SIZE = 400                   # tokens (approx characters / 4)
+EMBED_MODEL   = "all-MiniLM-L6-v2"   # free, runs locally, 384-dim vectors
+GROQ_MODEL    = "llama-3.3-70b-versatile"   # free tier, fast inference
+CHUNK_SIZE    = 400                   # tokens (approx characters / 4)
 CHUNK_OVERLAP = 50
-TOP_K = 5                     # chunks to retrieve per query
-CHROMA_PATH = "./chroma_db"
-DATA_PATH = Path("./data/raw")
+TOP_K         = 5                     # chunks to retrieve per query
+CHROMA_PATH   = "./chroma_db"
+DATA_PATH     = Path("./data/raw")
 DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -63,6 +60,8 @@ groq_client = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global embedder, collection, groq_client
+    print("⏳ Loading embedding model...")
+    embedder = SentenceTransformer(EMBED_MODEL)
 
     print("⏳ Connecting to ChromaDB...")
     client = chromadb.PersistentClient(path=CHROMA_PATH)
@@ -146,7 +145,7 @@ def chunk_text(text: str, source: str, page: int) -> list[dict]:
     Split text into overlapping character-based chunks.
     (In production, use a proper tokenizer for accurate token counts.)
     """
-    char_size = CHUNK_SIZE * 4       # ~4 chars per token
+    char_size    = CHUNK_SIZE * 4       # ~4 chars per token
     char_overlap = CHUNK_OVERLAP * 4
     chunks = []
     start = 0
@@ -176,7 +175,7 @@ def chunk_document(pages: list[dict], source: str) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 3 — EMBEDDING & STORAGE
 # ══════════════════════════════════════════════════════════════════════════════
-        
+
 def embed_and_store(chunks: list[dict]) -> int:
     """Embed chunks and store in ChromaDB. Returns number stored."""
     global embedder
@@ -185,9 +184,9 @@ def embed_and_store(chunks: list[dict]) -> int:
     if not chunks:
         return 0
 
-    texts = [c["text"] for c in chunks]
-    ids = [c["id"] for c in chunks]
-    metadatas = [{"source": c["source"], "page": c["page"]} for c in chunks]
+    texts      = [c["text"] for c in chunks]
+    ids        = [c["id"]   for c in chunks]
+    metadatas  = [{"source": c["source"], "page": c["page"]} for c in chunks]
     embeddings = embedder.encode(texts, show_progress_bar=False).tolist()
 
     # ChromaDB upsert (safe to re-run)
@@ -211,7 +210,7 @@ def embed_and_store(chunks: list[dict]) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 4 — RETRIEVAL (Dense + Hybrid)
 # ══════════════════════════════════════════════════════════════════════════════
-        
+
 def dense_retrieval(query: str, k: int = TOP_K) -> list[dict]:
     """Retrieve top-k chunks by cosine similarity."""
     global embedder
@@ -253,15 +252,12 @@ def hybrid_retrieval(query: str, k: int = TOP_K) -> list[dict]:
     # BM25 results
     tokens = query.lower().split()
     bm25_scores = bm25_index.get_scores(tokens)
-    top_bm25_idx = sorted(range(len(bm25_scores)),
-                          key=lambda i: -bm25_scores[i])[:k * 2]
-    bm25_rank = {bm25_corpus[i][:80]: rank for rank,
-                 i in enumerate(top_bm25_idx)}
+    top_bm25_idx = sorted(range(len(bm25_scores)), key=lambda i: -bm25_scores[i])[:k * 2]
+    bm25_rank = {bm25_corpus[i][:80]: rank for rank, i in enumerate(top_bm25_idx)}
 
     # RRF fusion
     all_keys = set(dense_rank) | set(bm25_rank)
     K_RRF = 60
-
     def rrf(key):
         dr = dense_rank.get(key, k * 4)
         br = bm25_rank.get(key, k * 4)
@@ -282,7 +278,6 @@ Answer questions ONLY based on the retrieved document context provided.
 Always cite the source document and page number.
 If the answer is not in the context, say: "I couldn't find information about this in the uploaded documents."
 Be concise but thorough. Use academic language."""
-
 
 def generate_answer(query: str, chunks: list[dict]) -> dict:
     """Call Groq (Llama 3.3) to generate an answer grounded in retrieved chunks."""
@@ -352,20 +347,19 @@ async def upload_document(file: UploadFile = File(...)):
     allowed = {".pdf", ".docx", ".doc", ".txt"}
     suffix = Path(file.filename).suffix.lower()
     if suffix not in allowed:
-        raise HTTPException(
-            400, f"File type {suffix} not supported. Use: {allowed}")
+        raise HTTPException(400, f"File type {suffix} not supported. Use: {allowed}")
 
     # Save file
-    doc_id = str(uuid.uuid4())[:8]
+    doc_id   = str(uuid.uuid4())[:8]
     save_path = DATA_PATH / f"{doc_id}_{file.filename}"
-    content = await file.read()
+    content  = await file.read()
     save_path.write_bytes(content)
 
     # Parse → chunk → embed
     t0 = time.time()
-    pages = parse_document(save_path)
+    pages  = parse_document(save_path)
     chunks = chunk_document(pages, source=file.filename)
-    n = embed_and_store(chunks)
+    n      = embed_and_store(chunks)
     elapsed = round(time.time() - t0, 2)
 
     # Register
@@ -392,8 +386,7 @@ class QueryRequest(BaseModel):
 async def query_documents(req: QueryRequest):
     """Answer a question using the RAG pipeline."""
     if collection.count() == 0:
-        raise HTTPException(
-            400, "No documents ingested yet. Upload some first.")
+        raise HTTPException(400, "No documents ingested yet. Upload some first.")
 
     # Retrieve
     if req.retrieval == "hybrid":
@@ -420,20 +413,17 @@ async def summarise_document(req: SummariseRequest):
     """Generate a summary for a specific document."""
     # Retrieve representative chunks for this document
     results = collection.query(
-        query_embeddings=embedder.encode(
-            [f"summary overview {req.document_name}"]).tolist(),
+        query_embeddings=embedder.encode([f"summary overview {req.document_name}"]).tolist(),
         n_results=min(req.top_k, collection.count() or 1),
         where={"source": req.document_name},
         include=["documents", "metadatas"],
     )
     chunks = [
-        {"text": doc, "source": meta["source"],
-            "page": meta["page"], "score": 1.0}
+        {"text": doc, "source": meta["source"], "page": meta["page"], "score": 1.0}
         for doc, meta in zip(results["documents"][0], results["metadatas"][0])
     ]
     if not chunks:
-        raise HTTPException(
-            404, f"Document '{req.document_name}' not found in knowledge base.")
+        raise HTTPException(404, f"Document '{req.document_name}' not found in knowledge base.")
 
     summary = generate_summary(req.document_name, chunks, req.mode)
     return {"document": req.document_name, "mode": req.mode, "summary": summary}
@@ -507,11 +497,11 @@ def run_ragas_evaluation(test_set_path: str = "evaluation/test_set.json"):
     for item in raw:
         chunks = hybrid_retrieval(item["question"])
         result = generate_answer(item["question"], chunks)
-        item["answer"] = result["answer"]
+        item["answer"]   = result["answer"]
         item["contexts"] = [c["text"] for c in chunks]
 
     dataset = Dataset.from_list(raw)
-    scores = evaluate(dataset, metrics=[
+    scores  = evaluate(dataset, metrics=[
         faithfulness,
         answer_relevancy,
         context_precision,
