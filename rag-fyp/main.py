@@ -176,12 +176,12 @@ def chunk_document(pages: list[dict], source: str) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 3 — EMBEDDING & STORAGE
 # ══════════════════════════════════════════════════════════════════════════════
-global embedder
-    if embedder is None:
-        embedder = SentenceTransformer(EMBED_MODEL)
         
 def embed_and_store(chunks: list[dict]) -> int:
     """Embed chunks and store in ChromaDB. Returns number stored."""
+    global embedder
+    if embedder is None:
+        embedder = SentenceTransformer(EMBED_MODEL)
     if not chunks:
         return 0
 
@@ -211,12 +211,12 @@ def embed_and_store(chunks: list[dict]) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 4 — RETRIEVAL (Dense + Hybrid)
 # ══════════════════════════════════════════════════════════════════════════════
-global embedder
-    if embedder is None:
-        embedder = SentenceTransformer(EMBED_MODEL)
         
 def dense_retrieval(query: str, k: int = TOP_K) -> list[dict]:
     """Retrieve top-k chunks by cosine similarity."""
+    global embedder
+    if embedder is None:
+        embedder = SentenceTransformer(EMBED_MODEL)
     q_embed = embedder.encode([query]).tolist()
     results = collection.query(
         query_embeddings=q_embed,
