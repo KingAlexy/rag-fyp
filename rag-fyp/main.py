@@ -63,8 +63,6 @@ groq_client = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global embedder, collection, groq_client
-    print("⏳ Loading embedding model...")
-    embedder = SentenceTransformer(EMBED_MODEL)
 
     print("⏳ Connecting to ChromaDB...")
     client = chromadb.PersistentClient(path=CHROMA_PATH)
@@ -178,7 +176,10 @@ def chunk_document(pages: list[dict], source: str) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 3 — EMBEDDING & STORAGE
 # ══════════════════════════════════════════════════════════════════════════════
-
+global embedder
+    if embedder is None:
+        embedder = SentenceTransformer(EMBED_MODEL)
+        
 def embed_and_store(chunks: list[dict]) -> int:
     """Embed chunks and store in ChromaDB. Returns number stored."""
     if not chunks:
@@ -210,7 +211,10 @@ def embed_and_store(chunks: list[dict]) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 4 — RETRIEVAL (Dense + Hybrid)
 # ══════════════════════════════════════════════════════════════════════════════
-
+global embedder
+    if embedder is None:
+        embedder = SentenceTransformer(EMBED_MODEL)
+        
 def dense_retrieval(query: str, k: int = TOP_K) -> list[dict]:
     """Retrieve top-k chunks by cosine similarity."""
     q_embed = embedder.encode([query]).tolist()
